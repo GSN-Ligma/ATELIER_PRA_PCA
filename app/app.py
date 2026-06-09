@@ -2,8 +2,10 @@ import os
 import sqlite3
 from datetime import datetime
 from flask import Flask, jsonify, request
+import time
 
 DB_PATH = os.getenv("DB_PATH", "/data/app.db")
+BACKUP_PATH = os.getenv("BACKUP_PATH", "/backup")
 
 app = Flask(__name__)
 
@@ -87,6 +89,49 @@ def count():
     conn.close()
 
     return jsonify(count=n)
+
+@app.get("/status")
+def status():
+    init_db()
+    
+    # Get count of events
+    conn = get_conn()
+    cur = conn.execute("SELECT COUNT(*) FROM events")
+    event_count = cur.fetchone()[0]
+    conn.close()
+    
+    # Get last backup file and its age
+    backup_dir = BACKUP_PATH
+    last_backup_file = None
+    backup_age_seconds = None
+    
+    if os.path.exists(backup_dir):
+        try:
+            backup_files = [
+                f for f in os.listdir(backup_dir) 
+                if os.path.isfile(os.path.join(backup_dir, f))
+            ]
+            if backup_files:
+                # Sort by modification time, get the most recent
+                backup_files.sort(
+                    key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)),
+                    reverse=True
+                )
+                last_backup_file = backup_files[0]
+                
+                # Calculate age in seconds
+                backup_path = os.path.join(backup_dir, last_backup_file)
+                mtime = os.path.getmtime(backup_path)
+                current_time = time.time()
+                backup_age_seconds = int(current_time - mtime)
+        except (OSError, IOError):
+            pass
+    
+    return jsonify(
+        count=event_count,
+        last_backup_file=last_backup_file,
+        backup_age_seconds=backup_age_seconds
+    )
 
 # ---------- Main ----------
 if __name__ == "__main__":
